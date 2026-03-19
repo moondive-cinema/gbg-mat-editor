@@ -20,3 +20,7 @@ node_modules/
 
 # Editor config (user-local)
 matte_editor_config.json
+
+# Working directories
+input/
+output/
