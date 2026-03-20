@@ -380,18 +380,23 @@ function App(){
     const mctx=mc.getContext("2d"),mid=mctx.createImageData(w,h);
     for(let i=0;i<w*h;i++){const v=Math.min(255,Math.max(0,mask[i*4]));mid.data[i*4]=mid.data[i*4+1]=mid.data[i*4+2]=v;mid.data[i*4+3]=255;}
     mctx.putImageData(mid,0,0);
-    // reference — original image with mask overlay at 50% opacity
+    // reference — original image with mask overlay (matching display composite)
     const tmp=document.createElement("canvas");tmp.width=imgDataRef.current.width;tmp.height=imgDataRef.current.height;
     tmp.getContext("2d").putImageData(imgDataRef.current,0,0);
     const rc=document.createElement("canvas");rc.width=w;rc.height=h;
     const rctx=rc.getContext("2d");
     rctx.drawImage(tmp,0,0,w,h);
-    const rov=document.createElement("canvas");rov.width=w;rov.height=h;
-    const rovctx=rov.getContext("2d"),rovbuf=rovctx.createImageData(w,h);
+    const rid=rctx.getImageData(0,0,w,h);
     const [kr,kg,kb]=hexToRgb(KEEP),[xr,xg,xb]=hexToRgb(KILL);
-    for(let i=0;i<w*h;i++){const v=mask[i*4]>127;rovbuf.data[i*4]=v?kr:xr;rovbuf.data[i*4+1]=v?kg:xg;rovbuf.data[i*4+2]=v?kb:xb;rovbuf.data[i*4+3]=128;}
-    rovctx.putImageData(rovbuf,0,0);
-    rctx.drawImage(rov,0,0);
+    const op=overlayRef.current;
+    for(let i=0;i<w*h;i++){
+      const di=i*4,v=mask[i*4]/255;
+      let r=rid.data[di],g=rid.data[di+1],b=rid.data[di+2];
+      if(v>0.5){const s=(v-0.5)*2;const wt=Math.min(1,op*s*0.85);r=r*(1-wt)+kr*wt;g=g*(1-wt)+kg*wt;b=b*(1-wt)+kb*wt;}
+      else{const s=(0.5-v)*2;const wt=Math.min(1,op*s*0.85);r=r*(1-wt)+xr*wt;g=g*(1-wt)+xg*wt;b=b*(1-wt)+xb*wt;}
+      rid.data[di]=r;rid.data[di+1]=g;rid.data[di+2]=b;
+    }
+    rctx.putImageData(rid,0,0);
     setLog("저장 중…");
     try{
       const [mblob,rblob]=await Promise.all([
