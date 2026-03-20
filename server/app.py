@@ -4,11 +4,11 @@ import datetime as dt
 import email.utils
 import io
 import sys
-import tempfile
 import traceback
 from pathlib import Path
 
 import cv2
+import numpy as np
 from flask import Flask, request, jsonify, send_file, send_from_directory, Response
 from flask_cors import CORS
 
@@ -129,29 +129,32 @@ def create_app(state: AppState) -> Flask:
         if "image" not in request.files:
             return jsonify({"error": "image 필드 없음"}), 400
 
-        file   = request.files["image"]
-        suffix = Path(file.filename).suffix if file.filename else ".png"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-            file.save(tmp_path)
+        file = request.files["image"]
         try:
-            image = cv2.imread(str(tmp_path))
+            # 디스크 I/O 우회: 메모리에서 직접 버퍼 읽기 및 디코딩
+            in_memory_file = file.read()
+            nparr = np.frombuffer(in_memory_file, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
             if image is None:
                 return jsonify({"error": "이미지 디코딩 실패"}), 400
+            
             model   = state.get_model()
             dets    = run_yolo(image, model, state.conf)
             green   = detect_green(image)
             nongrn  = get_non_green_mask(green)
             persons = get_person_detections(dets)
+            
             if persons:
                 base, pmask, tmask, shot = pipeline_with_person(persons, dets, nongrn)
             else:
                 base, pmask, shot = pipeline_without_person(dets, nongrn)
                 tmask = None
+                
             safe  = build_safe_zone_mask(shot, image.shape)
             base  = cv2.bitwise_and(base, safe)
             tight = generate_tight_matte(base, pmask, tmask, shot)
-            # 원본 해상도 유지 — 리사이즈는 출력 파이프라인 책임
+            
             ok, buf = cv2.imencode(".png", tight)
             if not ok:
                 return jsonify({"error": "PNG 인코딩 실패"}), 500
@@ -160,8 +163,6 @@ def create_app(state: AppState) -> Flask:
         except Exception as e:
             traceback.print_exc()
             return jsonify({"error": str(e)}), 500
-        finally:
-            tmp_path.unlink(missing_ok=True)
 
     # ── Latest (폴더 감시) ──────────────────────────────────────────────────
 
